@@ -12,12 +12,12 @@ from src.data_operations import insert_dummy_data, query_table
 
 def main():
     try:
-        delete_table()  # 既存のテーブルを削除（存在しない場合はスキップ）
+        delete_table()
         table = create_table()
         insert_dummy_data(table)
         query_table(table)
     finally:
-        delete_table()  # プログラム終了時にテーブルを削除
+       # delete_table()  # プログラム終了時にテーブルを削除
 
 if __name__ == "__main__":
     main()
