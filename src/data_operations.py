@@ -56,7 +56,7 @@ def query_table(table):
     )
     end_time = time.time()
     print(f"パーティションキーでの検索結果: {response['Items']}")
-    print(f"パーティションキーでの検索時間: {end_time - start_time:.2f}秒")
+    print(f"検索時間: {end_time - start_time:.2f}秒")
     
     # GSIで検索
     start_time = time.time()
@@ -66,11 +66,34 @@ def query_table(table):
     )
     end_time = time.time()
     print(f"GSIでの検索結果: {response['Items']}")
-    print(f"GSIでの検索時間: {end_time - start_time:.2f}秒")
+    print(f"検索時間: {end_time - start_time:.2f}秒")
     
     # 全レコード検索
     start_time = time.time()
-    response = table.scan()
+    items = []
+    scan_kwargs = {}
+    done = False
+    while not done:
+        response = table.scan(**scan_kwargs)
+        items.extend(response.get('Items', []))
+        scan_kwargs['ExclusiveStartKey'] = response.get('LastEvaluatedKey')
+        done = scan_kwargs['ExclusiveStartKey'] is None
     end_time = time.time()
-    print(f"全レコード数: {len(response['Items'])}")
+    print(f"全レコード数: {len(items)}")
+    print(f"検索時間: {end_time - start_time:.2f}秒")
+
+    # employment_typeが正社員の人を検索
+    start_time = time.time()
+    items = []
+    scan_kwargs = {
+        'FilterExpression': Key('employment_type').eq('正社員')
+    }
+    done = False
+    while not done:
+        response = table.scan(**scan_kwargs)
+        items.extend(response.get('Items', []))
+        scan_kwargs['ExclusiveStartKey'] = response.get('LastEvaluatedKey')
+        done = scan_kwargs['ExclusiveStartKey'] is None
+    end_time = time.time()
+    print(f"キー無し列の検索結果: {len(items)}件")
     print(f"検索時間: {end_time - start_time:.2f}秒")
