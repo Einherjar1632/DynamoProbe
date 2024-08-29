@@ -11,19 +11,19 @@ from src.data_operations import insert_main_data, query_main_table, insert_trans
 from src.config import TABLE_NAME, TRANSACTION_TEST_TABLE_NAME
 
 def main():
+    # クリーンアップ（テーブル作成も含めて最初からやり直したい時用）
+    # delete_main_table()
+    # delete_transaction_table()
+
     # メインテーブルの作成と操作
-    #main_table = create_main_table()
-    #insert_main_data(main_table)
-    #query_main_table(main_table)
+    main_table = create_main_table()
+    insert_main_data(main_table)
+    query_main_table(main_table)
 
     # トランザクションテストテーブルの作成と操作
     transaction_table = create_transaction_table()
     insert_transaction_data(transaction_table)
     test_transaction_isolation(transaction_table)
-
-    # クリーンアップ（オプション）
-    # delete_main_table()
-    # delete_transaction_table()
 
 if __name__ == "__main__":
     main()

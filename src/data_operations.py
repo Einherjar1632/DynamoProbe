@@ -1,6 +1,7 @@
 import time
 import uuid
 import random
+import threading
 from faker import Faker
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
@@ -120,41 +121,67 @@ def insert_transaction_data(table):
     print("10件のダミーデータを追加しました。")
 
 def test_transaction_isolation(table):
-    # トランザクション外でのクエリ
+    # 初期状態のレコード数を確認
     response = table.scan()
-    print(f"トランザクション外でのクエリ結果: {len(response['Items'])} 件")
+    initial_count = len(response['Items'])
+    print(f"初期状態のレコード数: {initial_count} 件")
     
-    # 新しいアイテムの準備
-    new_item = {
-        'id': str(uuid.uuid4()),
-        'data': 'New transaction data'
-    }
+    # 100件の新しいアイテムを準備
+    new_items = [
+        {
+            'id': str(uuid.uuid4()),
+            'data': f'New transaction data {i}'
+        } for i in range(100)
+    ]
     
-    # トランザクション内でのクエリとデータ追加
+    # トランザクション実行中のクエリ結果を格納する変数
+    during_transaction_counts = []
+    
+    def query_during_transaction():
+        for _ in range(10):  # 10回クエリを実行
+            response = table.scan()
+            count = len(response['Items'])
+            during_transaction_counts.append(count)
+            print(f"トランザクション実行中のクエリ結果: {count} 件")
+            time.sleep(0.1)  # 0.1秒待機
+    
+    # 別スレッドでクエリを実行
+    query_thread = threading.Thread(target=query_during_transaction)
+    query_thread.start()
+    
+    # トランザクションの実行
     try:
-        # トランザクション内でのクエリ（実際にはトランザクション外で実行されます）
-        response = table.scan()
-        print(f"トランザクション'前'のクエリ結果: {len(response['Items'])} 件")
+        time.sleep(1)  # クエリスレッドが準備するのを待つ
         
-        # トランザクションの実行
-        dynamodb.meta.client.transact_write_items(
-            TransactItems=[
-                {
-                    'Put': {
-                        'TableName': table.name,
-                        'Item': new_item
-                    }
+        # 100件のアイテムを追加するトランザクション
+        transact_items = [
+            {
+                'Put': {
+                    'TableName': table.name,
+                    'Item': item
                 }
-            ]
-        )
-        print("トランザクション内で新しいアイテムを追加しました。")
+            } for item in new_items
+        ]
         
-        # トランザクション後のクエリ
-        response = table.scan()
-        print(f"トランザクション'後'のクエリ結果: {len(response['Items'])} 件")
+        dynamodb.meta.client.transact_write_items(TransactItems=transact_items)
+        print("トランザクション内で100件の新しいアイテムを追加しました。")
     except ClientError as e:
         print(f"トランザクションエラー: {e.response['Error']['Message']}")
     
-    # 最終的なクエリ
+    # クエリスレッドの完了を待つ
+    query_thread.join()
+    
+    # トランザクション完了後のクエリ
     response = table.scan()
-    print(f"最終的なクエリ結果: {len(response['Items'])} 件")
+    final_count = len(response['Items'])
+    print(f"トランザクション完了後のクエリ結果: {final_count} 件")
+    
+    # 結果の分析
+    if all(count == initial_count for count in during_transaction_counts) and final_count == initial_count + 100:
+        print("トランザクションの分離レベルが確認されました。")
+        print("トランザクション中のすべてのクエリは初期状態のレコード数を返し、")
+        print("トランザクション完了後に100件増加しました。")
+    else:
+        print("予期せぬ結果が発生しました。")
+        print(f"トランザクション中のクエリ結果: {during_transaction_counts}")
+        print(f"最終的なレコード数: {final_count}")
