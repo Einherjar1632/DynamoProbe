@@ -3,7 +3,8 @@ import uuid
 import random
 from faker import Faker
 from boto3.dynamodb.conditions import Key
-from src.config import TABLE_NAME, NUM_RECORDS, GSI_NAME
+from botocore.exceptions import ClientError
+from src.config import TABLE_NAME, NUM_RECORDS, GSI_NAME, TRANSACTION_TEST_TABLE_NAME
 from src.table_operations import dynamodb
 
 fake = Faker('ja_JP')
@@ -12,7 +13,12 @@ def generate_kana_name():
     katakana = "アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン"
     return ''.join(random.choice(katakana) for _ in range(random.randint(2, 5)))
 
-def insert_dummy_data(table):
+def insert_main_data(table):
+    # テーブルにレコードが存在するか確認
+    if table.scan(Limit=1)['Items']:
+        print(f"テーブル {table.name} には既にデータが存在します。挿入をスキップします。")
+        return
+
     start_time = time.time()
     
     with table.batch_writer() as batch:
@@ -48,7 +54,7 @@ def insert_dummy_data(table):
     end_time = time.time()
     print(f"{NUM_RECORDS}件のデータを挿入しました。所要時間: {end_time - start_time:.2f}秒")
 
-def query_table(table):
+def query_main_table(table):
     # パーティションキーで検索
     start_time = time.time()
     response = table.query(
@@ -97,3 +103,58 @@ def query_table(table):
     end_time = time.time()
     print(f"キー無し列の検索結果: {len(items)}件")
     print(f"検索時間: {end_time - start_time:.2f}秒")
+
+def insert_transaction_data(table):
+    # テーブルにレコードが存在するか確認
+    if table.scan(Limit=1)['Items']:
+        print(f"テーブル {table.name} には既にデータが存在します。挿入をスキップします。")
+        return
+
+    with table.batch_writer() as batch:
+        for i in range(10):
+            item = {
+                'id': str(uuid.uuid4()),
+                'data': f'Dummy data {i}'
+            }
+            batch.put_item(Item=item)
+    print("10件のダミーデータを追加しました。")
+
+def test_transaction_isolation(table):
+    # トランザクション外でのクエリ
+    response = table.scan()
+    print(f"トランザクション外でのクエリ結果: {len(response['Items'])} 件")
+    
+    # 新しいアイテムの準備
+    new_item = {
+        'id': str(uuid.uuid4()),
+        'data': 'New transaction data'
+    }
+    
+    # トランザクション内でのクエリとデータ追加
+    try:
+        # トランザクション内でのクエリ（実際にはトランザクション外で実行されます）
+        response = table.scan()
+        print(f"トランザクション'前'のクエリ結果: {len(response['Items'])} 件")
+        
+        # トランザクションの実行
+        dynamodb.meta.client.transact_write_items(
+            TransactItems=[
+                {
+                    'Put': {
+                        'TableName': table.name,
+                        'Item': new_item
+                    }
+                }
+            ]
+        )
+        print("トランザクション内で新しいアイテムを追加しました。")
+        
+        # トランザクション後のクエリ
+        response = table.scan()
+        print(f"トランザクション'後'のクエリ結果: {len(response['Items'])} 件")
+    except ClientError as e:
+        print(f"トランザクションエラー: {e.response['Error']['Message']}")
+    
+    # 最終的なクエリ
+    response = table.scan()
+    print(f"最終的なクエリ結果: {len(response['Items'])} 件")

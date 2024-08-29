@@ -1,14 +1,13 @@
 import boto3
 from botocore.exceptions import ClientError
-from src.config import TABLE_NAME, REGION_NAME, PARTITION_KEY, GSI_KEY, GSI_NAME, MIN_CAPACITY, MAX_CAPACITY
+from src.config import TABLE_NAME, TRANSACTION_TEST_TABLE_NAME, REGION_NAME, PARTITION_KEY, GSI_KEY, GSI_NAME, MIN_CAPACITY, MAX_CAPACITY
 
 dynamodb = boto3.resource('dynamodb', region_name=REGION_NAME)
 client = boto3.client('dynamodb', region_name=REGION_NAME)
 application_autoscaling = boto3.client('application-autoscaling', region_name=REGION_NAME)
 
-def create_table():
+def create_main_table():
     try:
-        # テーブルが存在するか確認
         existing_table = dynamodb.Table(TABLE_NAME)
         existing_table.load()
         print(f"テーブル {TABLE_NAME} は既に存在します。")
@@ -46,6 +45,27 @@ def create_table():
         # Auto Scalingの設定
         setup_auto_scaling(TABLE_NAME)
         
+        return table
+
+def create_transaction_table():
+    try:
+        existing_table = dynamodb.Table(TRANSACTION_TEST_TABLE_NAME)
+        existing_table.load()
+        print(f"テーブル {TRANSACTION_TEST_TABLE_NAME} は既に存在します。")
+        return existing_table
+    except client.exceptions.ResourceNotFoundException:
+        table = dynamodb.create_table(
+            TableName=TRANSACTION_TEST_TABLE_NAME,
+            KeySchema=[
+                {'AttributeName': 'id', 'KeyType': 'HASH'}
+            ],
+            AttributeDefinitions=[
+                {'AttributeName': 'id', 'AttributeType': 'S'},
+            ],
+            BillingMode='PAY_PER_REQUEST'
+        )
+        print(f"テーブル {TRANSACTION_TEST_TABLE_NAME} を作成しました。")
+        table.meta.client.get_waiter('table_exists').wait(TableName=TRANSACTION_TEST_TABLE_NAME)
         return table
 
 def setup_auto_scaling(table_name):
@@ -99,7 +119,7 @@ def put_scaling_policy(table_name, dimension, scaling_type, index_name=None):
         }
     )
 
-def delete_table():
+def delete_main_table():
     try:
         table = dynamodb.Table(TABLE_NAME)
         table.delete()
@@ -107,3 +127,12 @@ def delete_table():
         table.meta.client.get_waiter('table_not_exists').wait(TableName=TABLE_NAME)
     except client.exceptions.ResourceNotFoundException:
         print(f"テーブル {TABLE_NAME} は存在しません。削除をスキップします。")
+
+def delete_transaction_table():
+    try:
+        table = dynamodb.Table(TRANSACTION_TEST_TABLE_NAME)
+        table.delete()
+        print(f"テーブル {TRANSACTION_TEST_TABLE_NAME} を削除しました。")
+        table.meta.client.get_waiter('table_not_exists').wait(TableName=TRANSACTION_TEST_TABLE_NAME)
+    except client.exceptions.ResourceNotFoundException:
+        print(f"テーブル {TRANSACTION_TEST_TABLE_NAME} は存在しません。削除をスキップします。")
